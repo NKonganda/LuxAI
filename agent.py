@@ -23,6 +23,15 @@ def get_resource_tiles(game_state, width, height):
                 resource_tiles.append(cell)
     return resource_tiles
 
+def get_empty_tiles(game_states, width, height):
+    empty_tiles: list[Cell] = []
+    for y in range(height):
+        for x in range(width):
+            cell = game_state.map.get_cell(x, y)
+            if not cell.has_resource():
+                empty_tiles.append(cell)
+    return empty_tiles
+
 def get_closest_resource(unit, resource_tiles, player):
     closest_dist = math.inf
     closest_resource_tile = None
@@ -47,6 +56,16 @@ def get_closest_city(player, unit):
                 closest_city_tile = city_tile
     return closest_city_tile
 
+def get_closest_empty_tile(unit,empty_tiles):
+    closest_dist = math.inf
+    closest_empty_tile = None
+    for tile in empty_tiles:
+        dist = tile.pos.distance_to(unit.pos)
+        if dist < closest_dist:
+            closest_dist = dist
+            closest_empty_tile = tile
+    return closest_empty_tile
+
 def agent(observation, configuration):
     global game_state
 
@@ -69,22 +88,36 @@ def agent(observation, configuration):
     logging.info(f"{player.cities}")
 
     resource_tiles = get_resource_tiles(game_state, width, height)
+    empty_tiles = get_empty_tiles(game_state, width, height)
 
     # we iterate over all our units and do something with them
     for unit in player.units:
         if unit.is_worker() and unit.can_act():
-
             if unit.get_cargo_space_left() > 0:
                 closest_resource_tile = get_closest_resource(unit, resource_tiles, player)
                 if closest_resource_tile is not None:
                     actions.append(unit.move(unit.pos.direction_to(closest_resource_tile.pos)))
             else:
-                # if unit is a worker and there is no cargo space left, and we have cities, lets return to them
-                if len(player.cities) > 0:
+                # if unit is a worker and has max cargo filled, build a city every 2 turns
+                cycle = 0
+                if cycle % 3 == 2:
+                    closest_empty_tile = get_closest_empty_tile(unit, empty_tiles)
                     closest_city_tile = get_closest_city(player, unit)
-                    if closest_city_tile is not None:
-                        move_dir = unit.pos.direction_to(closest_city_tile.pos)
-                        actions.append(unit.move(move_dir))
+                    if closest_empty_tile is not None:
+                        logging.info(f"{unit} attempting to build city")
+                        actions.append(unit.move(unit.pos.direction_to(closest_empty_tile.pos)))
+                        if unit.can_build(game_state.map):
+                            # print("yes")
+                            actions.append(unit.build_city())
+                            move_dir = unit.pos.direction_to(closest_city_tile.pos)
+                            actions.append(unit.move(move_dir))
+                else:
+                    # if unit is a worker and there is no cargo space left, and we have cities, lets return to them
+                    if len(player.cities) > 0:
+                        closest_city_tile = get_closest_city(player, unit)
+                        if closest_city_tile is not None:
+                            move_dir = unit.pos.direction_to(closest_city_tile.pos)
+                            actions.append(unit.move(move_dir))
 
     # you can add debug annotations using the functions in the annotate object
     # actions.append(annotate.circle(0, 0))
