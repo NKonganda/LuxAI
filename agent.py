@@ -4,15 +4,11 @@ from lux.game_map import Cell, RESOURCE_TYPES
 from lux.constants import Constants
 from lux.game_constants import GAME_CONSTANTS
 from lux import annotate
-import logging #<------ added
-
-# run command: lux-ai-2021 main.py main.py --out=replay.json
-
-logging.basicConfig(filename="agent.log", level=logging.INFO)
 
 DIRECTIONS = Constants.DIRECTIONS
 game_state = None
 
+build_location = None
 
 def get_resource_tiles(game_state, width, height):
     resource_tiles: list[Cell] = []
@@ -22,15 +18,6 @@ def get_resource_tiles(game_state, width, height):
             if cell.has_resource():
                 resource_tiles.append(cell)
     return resource_tiles
-
-def get_empty_tiles(game_states, width, height):
-    empty_tiles: list[Cell] = []
-    for y in range(height):
-        for x in range(width):
-            cell = game_state.map.get_cell(x, y)
-            if not cell.has_resource():
-                empty_tiles.append(cell)
-    return empty_tiles
 
 def get_closest_resource(unit, resource_tiles, player):
     closest_dist = math.inf
@@ -56,18 +43,9 @@ def get_closest_city(player, unit):
                 closest_city_tile = city_tile
     return closest_city_tile
 
-def get_closest_empty_tile(unit,empty_tiles):
-    closest_dist = math.inf
-    closest_empty_tile = None
-    for tile in empty_tiles:
-        dist = tile.pos.distance_to(unit.pos)
-        if dist < closest_dist:
-            closest_dist = dist
-            closest_empty_tile = tile
-    return closest_empty_tile
-
 def agent(observation, configuration):
     global game_state
+    global build_location
 
     ### Do not edit ###
     if observation["step"] == 0:
@@ -80,54 +58,74 @@ def agent(observation, configuration):
 
     actions = []
 
-    ### AI Code goes down here! ### 
+    ### AI Code goes down here! ###
     player = game_state.players[observation.player]
     opponent = game_state.players[(observation.player + 1) % 2]
     width, height = game_state.map.width, game_state.map.height
 
-    logging.info(f"{player.cities}")
+     # checking city tiles
+    cities = player.cities.values()
+    city_tiles = []
+
+    for city in cities:
+        for c_tile in city.citytiles:
+            city_tiles.append(c_tile)
+
 
     resource_tiles = get_resource_tiles(game_state, width, height)
-    empty_tiles = get_empty_tiles(game_state, width, height)
+
+    build_city = False
+    if len(city_tiles) < 2:
+        build_city = True
 
     # we iterate over all our units and do something with them
     for unit in player.units:
         if unit.is_worker() and unit.can_act():
             if unit.get_cargo_space_left() > 0:
+                # if the unit is a worker and we have space in cargo, lets find the nearest resource tile and try to mine it
                 closest_resource_tile = get_closest_resource(unit, resource_tiles, player)
                 if closest_resource_tile is not None:
                     actions.append(unit.move(unit.pos.direction_to(closest_resource_tile.pos)))
             else:
-                # if unit is a worker and has max cargo filled, build a city every 2 turns
-                cycle = 0
-                if cycle % 3 == 2:
-                    closest_empty_tile = get_closest_empty_tile(unit, empty_tiles)
+                # if unit is a worker and there is no cargo space left, and we have cities, lets return to them
+                if build_city:
+                        # logging.INFO("We want to build a city!")
+                        if build_location is None:
+                            empty_near = get_closest_city(player, unit)
+
+                            dirs = [(1,0), (0,1), (-1,0), (0,-1)]
+
+                            for d in dirs:
+                                try:
+                                    possible_empty_tile = game_state.map.get_cell(empty_near.pos.x+d[0], empty_near.pos.y+d[1])
+                                    # logging.WARNING(f"{observation[step]}: Checking {possible_empty_tile}")
+
+                                    if possible_empty_tile.resource is None and possible_empty_tile.road == 0 and possible_empty_tile.citytile is None:
+                                        build_location = possible_empty_tile
+                                        # logging.WARNING(f"{observation[step]}: Found build location: {possible_empty_tile}")
+                                        break
+
+                                except Exception as e:
+                                    pass
+                                    # logging.WARNING(f"{observation[step]}: While searching for empty tiles: {str(e)}")
+                        elif unit.pos == build_location.pos:
+                            action = unit.build_city()
+                            actions.append(action)
+
+                            build_city = False
+                            build_location = None
+                            continue
+
+                        else:
+                            actions.append(unit.move(unit.pos.direction_to(build_location.pos)))
+
+                if len(player.cities) > 0:
                     closest_city_tile = get_closest_city(player, unit)
-                    if closest_empty_tile is not None:
-                        logging.info(f"{unit} attempting to build city")
-                        actions.append(unit.move(unit.pos.direction_to(closest_empty_tile.pos)))
-                        if unit.can_build(game_state.map):
-                            # print("yes")
-                            actions.append(unit.build_city())
-                            move_dir = unit.pos.direction_to(closest_city_tile.pos)
-                            actions.append(unit.move(move_dir))
-                else:
-                    # if unit is a worker and there is no cargo space left, and we have cities, lets return to them
-                    if len(player.cities) > 0:
-                        closest_city_tile = get_closest_city(player, unit)
-                        if closest_city_tile is not None:
-                            move_dir = unit.pos.direction_to(closest_city_tile.pos)
-                            actions.append(unit.move(move_dir))
+                    if closest_city_tile is not None:
+                        move_dir = unit.pos.direction_to(closest_city_tile.pos)
+                        actions.append(unit.move(move_dir))
 
     # you can add debug annotations using the functions in the annotate object
     # actions.append(annotate.circle(0, 0))
 
     return actions
-
-
-"""
-Resources:
-
-https://youtu.be/6_GXTbTL9Uc
-
-"""
