@@ -125,6 +125,10 @@ def agent(observation, configuration):
                         move_dir = unit.pos.direction_to(closest_city_tile.pos)
                         actions.append(unit.move(move_dir))
 
+    if city_tiles is not None:
+        action = city_tiles[0].build_worker()
+    actions.append(action)
+
     # you can add debug annotations using the functions in the annotate object
     # actions.append(annotate.circle(0, 0))
 
