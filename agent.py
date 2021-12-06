@@ -4,11 +4,16 @@ from lux.game_map import Cell, RESOURCE_TYPES
 from lux.constants import Constants
 from lux.game_constants import GAME_CONSTANTS
 from lux import annotate
+from collections import deque
+import random
+
+# run command: lux-ai-2021 main.py main.py --out=replay.json
 
 DIRECTIONS = Constants.DIRECTIONS
 game_state = None
-
 build_location = None
+
+worker_positions = {}
 
 def get_resource_tiles(game_state, width, height):
     resource_tiles: list[Cell] = []
@@ -46,6 +51,7 @@ def get_closest_city(player, unit):
 def agent(observation, configuration):
     global game_state
     global build_location
+    global worker_positions
 
     ### Do not edit ###
     if observation["step"] == 0:
@@ -62,8 +68,16 @@ def agent(observation, configuration):
     player = game_state.players[observation.player]
     opponent = game_state.players[(observation.player + 1) % 2]
     width, height = game_state.map.width, game_state.map.height
+    workers = [u for u in player.units if u.is_worker()]
 
-     # checking city tiles
+    for w in workers:
+        if w.id in worker_positions:
+            worker_positions[w.id].append((w.pos.x, w.pos.y))
+        else:
+            worker_positions[w.id] = deque(maxlen=3)
+            worker_positions[w.id].append((w.pos.x, w.pos.y))
+
+    # checking city tiles
     cities = player.cities.values()
     city_tiles = []
 
@@ -75,12 +89,21 @@ def agent(observation, configuration):
     resource_tiles = get_resource_tiles(game_state, width, height)
 
     build_city = False
-    if len(city_tiles) < 2:
+    if len(city_tiles) < 5:
         build_city = True
 
     # we iterate over all our units and do something with them
     for unit in player.units:
         if unit.is_worker() and unit.can_act():
+
+            last_positions = worker_positions[unit.id]
+            if len(last_positions) >= 2:
+                hm_positions = set(last_positions)
+                if len(list(hm_positions)) == 1:
+                    # print("unit is stuck")
+                    actions.append(unit.move(random.choice(["n","s","e","w"])))
+                    continue
+
             if unit.get_cargo_space_left() > 0:
                 # if the unit is a worker and we have space in cargo, lets find the nearest resource tile and try to mine it
                 closest_resource_tile = get_closest_resource(unit, resource_tiles, player)
